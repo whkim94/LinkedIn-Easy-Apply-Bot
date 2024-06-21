@@ -22,12 +22,14 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support.ui import WebDriverWait, Select
 
 from selenium.webdriver.chrome.service import Service as ChromeService
 import webdriver_manager.chrome as ChromeDriverManager
 ChromeDriverManager = ChromeDriverManager.ChromeDriverManager
 
+import os
+os.environ['DISPLAY'] = ':0'
 
 log = logging.getLogger(__name__)
 
@@ -108,7 +110,10 @@ class EasyApplyBot:
             "next": (By.CSS_SELECTOR, "button[aria-label='Continue to next step']"),
             "review": (By.CSS_SELECTOR, "button[aria-label='Review your application']"),
             "submit": (By.CSS_SELECTOR, "button[aria-label='Submit application']"),
-            "error": (By.CLASS_NAME, "artdeco-inline-feedback__message"),
+            "done": (By.XPATH, '//button[span[text()="Done"]]'),
+            # "error": (By.CLASS_NAME, "artdeco-inline-feedback__message"),
+            "error": (By.CSS_SELECTOR, ".jobs-easy-apply-form-section__grouping:has(.artdeco-inline-feedback__message)"),
+            
             "upload_resume": (By.XPATH, "//*[contains(@id, 'jobs-document-upload-file-input-upload-resume')]"),
             "upload_cv": (By.XPATH, "//*[contains(@id, 'jobs-document-upload-file-input-upload-cover-letter')]"),
             "follow": (By.CSS_SELECTOR, "label[for='follow-company-checkbox']"),
@@ -116,7 +121,8 @@ class EasyApplyBot:
             "search": (By.CLASS_NAME, "jobs-search-results-list"),
             "links": ("xpath", '//div[@data-job-id]'),
             "fields": (By.CLASS_NAME, "jobs-easy-apply-form-section__grouping"),
-            "radio_select": (By.CSS_SELECTOR, "input[type='radio']"), #need to append [value={}].format(answer)
+            # "radio_select": (By.CSS_SELECTOR, "input[type='radio']"), #need to append [value={}].format(answer)
+            "radio_select": (By.CLASS_NAME, "fb-form-element__checkbox"), #need to append [value={}].format(answer)
             "multi_select": (By.XPATH, "//*[contains(@id, 'text-entity-list-form-component')]"),
             "text_select": (By.CLASS_NAME, "artdeco-text-input--input"),
             "2fa_oneClick": (By.ID, 'reset-password-submit-button'),
@@ -330,7 +336,7 @@ class EasyApplyBot:
                 button.click()
                 clicked = True
                 time.sleep(1)
-                self.fill_out_fields()
+                # self.fill_out_fields()
                 result: bool = self.send_resume()
                 if result:
                     string_easy = "*Applied: Sent Resume"
@@ -397,19 +403,6 @@ class EasyApplyBot:
 
         return EasyApplyButton
 
-    def fill_out_fields(self):
-        fields = self.browser.find_elements(By.CLASS_NAME, "jobs-easy-apply-form-section__grouping")
-        for field in fields:
-
-            if "Mobile phone number" in field.text:
-                field_input = field.find_element(By.TAG_NAME, "input")
-                field_input.clear()
-                field_input.send_keys(self.phone_number)
-
-
-        return
-
-
     def get_elements(self, type) -> list:
         elements = []
         element = self.locator[type]
@@ -418,8 +411,19 @@ class EasyApplyBot:
         return elements
 
     def is_present(self, locator):
-        return len(self.browser.find_elements(locator[0],
-                                              locator[1])) > 0
+        # return len(self.browser.find_elements(locator[0],
+        #                                       locator[1])) > 0
+
+        locator_exist = self.browser.find_elements(locator[0], locator[1])
+
+        return True if locator_exist else False
+    
+    def is_present_in_field(self, field, locator):
+        try:
+            locator_exist = field.find_element(locator[0], locator[1])
+            return True if locator_exist else False
+        except:
+            return False
 
     def send_resume(self) -> bool:
         def is_present(button_locator) -> bool:
@@ -441,8 +445,8 @@ class EasyApplyBot:
             follow_locator = (By.CSS_SELECTOR, "label[for='follow-company-checkbox']")
 
             submitted = False
-            loop = 0
-            while loop < 2:
+
+            while True:
                 time.sleep(1)
                 # Upload resume
                 if is_present(upload_resume_locator):
@@ -474,33 +478,32 @@ class EasyApplyBot:
                     for element in elements:
                         button = self.wait.until(EC.element_to_be_clickable(element))
                         button.click()
-                        log.info("Application Submitted")
+                        log.info("Submit: Application Submitted")
                         submitted = True
-                        break
+                    break
 
                 elif len(self.get_elements("error")) > 0:
                     elements = self.get_elements("error")
                     if "application was sent" in self.browser.page_source:
-                        log.info("Application Submitted")
+                        log.info("Sent 1: Application Submitted")
                         submitted = True
                         break
                     elif len(elements) > 0:
                         while len(elements) > 0:
-                            log.info("Please answer the questions, waiting 5 seconds...")
-                            time.sleep(5)
+                            log.info("Please answer the questions, waiting 2 seconds...")
+                            time.sleep(2)
                             elements = self.get_elements("error")
 
-                            for element in elements:
-                                self.process_questions()
+                            self.process_questions(elements)
 
                             if "application was sent" in self.browser.page_source:
-                                log.info("Application Submitted")
+                                log.info("Sent 2: Application Submitted")
                                 submitted = True
                                 break
-                            elif is_present(self.locator["easy_apply_button"]):
-                                log.info("Skipping application")
-                                submitted = False
-                                break
+                            # elif is_present(self.locator["easy_apply_button"]):
+                            #     log.info("Skipping application")
+                            #     submitted = False
+                            #     break
                         continue
                         #add explicit wait
                     
@@ -508,7 +511,6 @@ class EasyApplyBot:
                         log.info("Application not submitted")
                         time.sleep(2)
                         break
-                    # self.process_questions()
 
                 elif len(self.get_elements("next")) > 0:
                     elements = self.get_elements("next")
@@ -535,103 +537,129 @@ class EasyApplyBot:
             #raise (e)
 
         return submitted
-    def process_questions(self):
+    
+    def fill_out_fields(self):
+        fields = self.browser.find_elements(By.CLASS_NAME, "jobs-easy-apply-form-section__grouping")
+        for field in fields:
+
+            if "Mobile phone number" in field.text:
+                field_input = field.find_element(By.TAG_NAME, "input")
+                field_input.clear()
+                field_input.send_keys(self.phone_number)
+
+        return
+    
+    def process_questions(self, fields):
         time.sleep(1)
-        form = self.get_elements("fields") #self.browser.find_elements(By.CLASS_NAME, "jobs-easy-apply-form-section__grouping")
-        for field in form:
+
+        for field in fields:
             question = field.text
-            answer = self.ans_question(question.lower())
-            #radio button
-            if self.is_present(self.locator["radio_select"]):
-                try:
-                    input = field.find_element(By.CSS_SELECTOR, "input[type='radio'][value={}]".format(answer))
-                    input.execute_script("arguments[0].click();", input)
-                except Exception as e:
-                    log.error(e)
-                    continue
-            #multi select
-            elif self.is_present(self.locator["multi_select"]):
-                try:
-                    input = field.find_element(self.locator["multi_select"])
-                    input.send_keys(answer)
-                except Exception as e:
-                    log.error(e)
-                    continue
+
             # text box
-            elif self.is_present(self.locator["text_select"]):
+            if self.is_present_in_field(field, self.locator["text_select"]):
+                log.info("Text field is present!!!")
                 try:
-                    input = field.find_element(self.locator["text_select"])
-                    input.send_keys(answer)
+                    input = field.find_element(By.TAG_NAME, "input")
+
+                    if not len(input.text):
+                        answer = self.ans_question(question.lower())
+                        input.clear()
+                        input.send_keys(answer)
+                    else:
+                        log.info("Answer already answered with: " + input.text)
                 except Exception as e:
                     log.error(e)
                     continue
 
-            elif self.is_present(self.locator["text_select"]):
-               pass
+    
+            #radio button
+            elif self.is_present_in_field(field, self.locator["radio_select"]):
+                log.info("RADIO is present!!!")
+                try:
+                    radio_options = field.find_elements(By.CLASS_NAME, "fb-form-element__checkbox")
 
-            if "Yes" or "No" in answer: #radio button
-                try: #debug this
-                    input = form.find_element(By.CSS_SELECTOR, "input[type='radio'][value={}]".format(answer))
-                    form.execute_script("arguments[0].click();", input)
-                except:
-                    pass
+                    for option in radio_options:
+                        if option.is_selected():
+                            continue
+                    
+                    answer = self.ans_question(question.lower())
+
+                    for option in radio_options:
+                        if option.get_attribute('data-test-text-selectable-option__input') == answer:
+                            self.browser.execute_script("arguments[0].click();", option)
+                            continue
+
+                except Exception as e:
+                    log.error(e)
+                    continue
 
 
+            #multi select
+            elif self.is_present_in_field(field, self.locator["multi_select"]):
+                log.info("Multi field is present!!!")
+                try:
+                    log.info("Current field is: " + field.text)
+                    # input = field.find_element(By.XPATH, "//*[contains(@id, 'text-entity-list-form-component')]")
+                    input = field.find_element(By.TAG_NAME, 'select')
+
+                    select = Select(input)
+                    selected = select.first_selected_option
+
+                    log.info("Selected: " + selected.text)
+
+                    if selected.text.lower() == "select an option":
+                        answer = self.ans_question(question.lower())
+                        select.select_by_value(answer)
+
+                except Exception as e:
+                    log.error(e)
+                    continue
+        
             else:
-                input = form.find_element(By.CLASS_NAME, "artdeco-text-input--input")
-                input.send_keys(answer)
+                pass
+
 
     def ans_question(self, question): #refactor this to an ans.yaml file
         answer = None
-        if "how many" in question:
-            answer = "1"
-        elif "experience" in question:
-            answer = "1"
-        elif "sponsor" in question:
-            answer = "No"
-        elif 'do you ' in question:
-            answer = "Yes"
-        elif "have you " in question:
-            answer = "Yes"
-        elif "US citizen" in question:
-            answer = "Yes"
-        elif "are you " in question:
-            answer = "Yes"
-        elif "salary" in question:
-            answer = self.salary
-        elif "can you" in question:
-            answer = "Yes"
-        elif "gender" in question:
-            answer = "Male"
-        elif "race" in question:
-            answer = "Wish not to answer"
-        elif "lgbtq" in question:
-            answer = "Wish not to answer"
-        elif "ethnicity" in question:
-            answer = "Wish not to answer"
-        elif "nationality" in question:
-            answer = "Wish not to answer"
-        elif "government" in question:
-            answer = "I do not wish to self-identify"
-        elif "are you legally" in question:
-            answer = "Yes"
-        else:
-            log.info("Not able to answer question automatically. Please provide answer")
-            #open file and document unanswerable questions, appending to it
-            answer = "user provided"
-            time.sleep(15)
 
-            # df = pd.DataFrame(self.answers, index=[0])
-            # df.to_csv(self.qa_file, encoding="utf-8")
-        log.info("Answering question: " + question + " with answer: " + answer)
+        # elif "sponsor" in question:
+        #     answer = "No"
+        # if "US citizen" in question:
+        #     answer = "Yes"
+        # elif "are you " in question:
+        #     answer = "Yes"
+        # elif "gender" in question:
+        #     answer = "Male"
+        # elif "race" in question:
+        #     answer = "Wish not to answer"
+        # elif "lgbtq" in question:
+        #     answer = "Wish not to answer"
+        # elif "ethnicity" in question:
+        #     answer = "Asian"
+        # elif "nationality" in question:
+        #     answer = "Wish not to answer"
+        # elif "government" in question:
+        #     answer = "I do not wish to self-identify"
+        # elif "are you legally" in question:
+        #     answer = "Yes"
 
         # Append question and answer to the CSV
         if question not in self.answers:
+            log.info("Not able to answer question automatically. Please provide answer")
+            #open file and document unanswerable questions, appending to it
+            answer = input(question + ": ")
+
+            time.sleep(1)
+
             self.answers[question] = answer
             # Append a new question-answer pair to the CSV file
             new_data = pd.DataFrame({"Question": [question], "Answer": [answer]})
             new_data.to_csv(self.qa_file, mode='a', header=False, index=False, encoding='utf-8')
             log.info(f"Appended to QA file: '{question}' with answer: '{answer}'.")
+        
+        else:
+            log.info("Answer in qa file: " + str(self.answers[question]))
+            answer = self.answers[question]
 
         return answer
 
